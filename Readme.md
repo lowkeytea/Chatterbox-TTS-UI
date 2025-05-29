@@ -7,6 +7,40 @@ This project provides a user-friendly PySide6 interface for Resemble AI's open-s
 ![Screenshot of Chatterbox UI](screenshot_1.png)
 *(Early Stage of the App UI)*
 
+## Language Support
+
+*   The underlying `chatterbox-tts` model (version 0.1.1, as currently used by this project) is primarily designed and trained for **English** text-to-speech.
+*   While it may attempt to pronounce words from other languages using English phonetics, the results will generally not sound like native speech and may be unintelligible.
+*   Languages using non-Latin scripts (e.g., Greek, Cyrillic, Chinese, Korean) or those with extensive diacritics not common in English are highly likely to cause errors (including CUDA errors) or produce completely garbled output.
+*   True support for other languages would depend on:
+    *   Future versions or different models from the `chatterbox-tts` **developers**.
+    *   Models **fine-tuned by the community** for specific languages.
+    *   The model itself potentially needing to be **fine-tuned** on new language data.
+
+<details>
+<summary>Community Language Test Results (Unofficial - Click to Expand)</summary>
+
+The following are informal test results based on community feedback or brief checks. The model's performance on these languages is generally an attempt to pronounce them with a strong English phonetic base, not true multilingual synthesis.
+
+**Important Note:** Slavic languages using the Cyrillic alphabet (e.g., Russian, Bulgarian, Serbian, Ukrainian) are **NOT supported** and may lead to errors similar to those observed with Greek text.
+
+*   **English:** Supported (Primary Language)
+*   **German:** Produces speech, but described as having a non-native (e.g., mixed African/English/French) accent. Does not sound like native German.
+*   **French:** Produces speech, heavily English-accented.
+*   **Spanish:** Produces speech, heavily English-accented.
+*   **Romanian:** Produces speech, heavily English-accented.
+*   **Italian:** Produces speech, heavily English-accented.
+*   **Dutch:** Not recognizable as Dutch.
+*   **Swedish:** Not recognizable as Swedish.
+*   **Polish:** (Uses Latin script, but good to test) - *Result based on your test, e.g., "Not recognizable as Polish."*
+*   **Turkish:** Generally produces unintelligible or English-ified output.
+*   **Czech:** (Uses Latin script with diacritics) - *Result based on your test, e.g., "Generally produces unintelligible or English-ified output."*
+*   **Korean:** Generally produces unintelligible output; may try to pronounce characters as English letters.
+*   **Chinese (Mandarin):** Generally produces unintelligible output; may try to pronounce characters as English letters or Pinyin with English phonetics.
+*   **Greek:** **HIGHLY UNSUPPORTED.** Attempting to use Greek text can lead to application errors (CUDA device-side asserts). **DO NOT TEST without expecting potential instability.**
+
+</details>
+
 ## Features
 
 *   **Simple PySide6 Interface:**

@@ -20,6 +20,7 @@ This project provides a user-friendly PySide6 interface for Resemble AI's open-s
 
 <details>
 <summary><strong> Check this beautiful UI </strong>- Click to expand</summary>
+
 ![Screenshot of Chatterbox UI](screenshot_1.png)
 *(Early Stage of the App UI)*
 </details>

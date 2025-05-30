@@ -259,4 +259,4 @@ Please take a look at [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how t
 ## Acknowledgements
 
 *   **Resemble AI** for the open-source [Chatterbox TTS model](https://github.com/resemble-ai/chatterbox).
-*   The developers of PySide6, NLTK, PyTorch, and `uv`.# Chatterbox TTS - One Click Installer & UI
+*   The developers of PySide6, NLTK, PyTorch, and `uv`.

@@ -2,46 +2,75 @@
 
 This project provides a user-friendly PySide6 interface for Resemble AI's open-source **Chatterbox TTS** model, along with a one-click (Windows `run.bat`) (Mac OS `run.sh`) installer to set up the environment and dependencies.
 
-**Voice cloning and Text-to-Speech with a simple GUI!**
 
+## Table of Contents
+
+* [Features](#features)
+* [Language Support](#language-support)
+* [Prerequisites](#prerequisites)
+* [Installation & Usage](#installation--usage)
+* [Manual Installation (Advanced)](#manual-installation-advanced)
+* [Project Structure](#project-structure)
+* [Troubleshooting](#troubleshooting)
+* [Important Notes on PyTorch Installation](#important-notes-on-pytorch-installation--reproducibility)
+* [Contributing](#contributing)
+* [Acknowledgements](#acknowledgements)
+
+## Screenshot
+
+<details>
+<summary><strong> Check this beautiful UI </strong>- Click to expand</summary>
 ![Screenshot of Chatterbox UI](screenshot_1.png)
 *(Early Stage of the App UI)*
+</details>
 
 ## Language Support
 
-*   The underlying `chatterbox-tts` model (version 0.1.1, as currently used by this project) is primarily designed and trained for **English** text-to-speech.
-*   While it may attempt to pronounce words from other languages using English phonetics, the results will generally not sound like native speech and may be unintelligible.
-*   Languages using non-Latin scripts (e.g., Greek, Cyrillic, Chinese, Korean) or those with extensive diacritics not common in English are highly likely to cause errors (including CUDA errors) or produce completely garbled output.
-*   True support for other languages would depend on:
-    *   Future versions or different models from the `chatterbox-tts` **developers**.
-    *   Models **fine-tuned by the community** for specific languages.
-    *   The model itself potentially needing to be **fine-tuned** on new language data.
+<details>
+<summary><strong>Official Model Capabilities (v0.1.1)</strong> - Click to Expand</summary>
+
+*   The underlying `chatterbox-tts` model (version 0.1.1, as currently used by this project) is primarily designed and trained for **English (US/General Accent)** text-to-speech.
+*   **Other Languages:**
+    *   While the model may attempt to pronounce words from other languages using English phonetics, the results will generally **not sound like native speech** and may be heavily accented or unintelligible.
+    *   Languages using **non-Latin scripts** (e.g., Greek, Cyrillic, Chinese, Korean, Arabic, Hindi) or those with extensive **diacritics/special characters** not common in English are highly likely to cause errors (including potential CUDA errors if character processing fails) or produce completely garbled output.
+*   **Achieving True Multilingual Support:** This would require:
+    *   New models or updated versions from the `chatterbox-tts` **developers** specifically trained or fine-tuned for those languages.
+    *   Community efforts to **fine-tune** the existing model or train new ones on specific language datasets.
+*   **Recommendation:** For reliable and high-quality results, **it is strongly recommended to use English text only** with the current version of the model. It is primarily a research and development tool for English TTS at this stage.
+</details>
 
 <details>
-<summary>Community Language Test Results (Unofficial - Click to Expand)</summary>
+<summary><strong>Community Language Test Observations (Unofficial)</strong> - Click to Expand</summary>
 
-The following are informal test results based on community feedback or brief checks. The model's performance on these languages is generally an attempt to pronounce them with a strong English phonetic base, not true multilingual synthesis.
+The following are informal observations on how the current English model (v0.1.1) attempts to handle text from other languages. These are **not endorsements of support** but rather notes on its behavior. Expect a strong English phonetic base and accent.
 
-**Important Note:** Slavic languages using the Cyrillic alphabet (e.g., Russian, Bulgarian, Serbian, Ukrainian) are **NOT supported** and may lead to errors similar to those observed with Greek text.
+**⚠️ WARNING: Non-Latin Scripts & Extensive Diacritics ⚠️**
+Attempting to process languages with non-Latin scripts (e.g., Greek, Cyrillic, Hanzi, Hangul) or extensive diacritics can lead to unpredictable behavior, including application errors (like CUDA device-side asserts with Greek text) or completely garbled/silent output. **Proceed with caution and expect instability if testing these.**
 
-*   **English:** Supported (Primary Language)
-*   **German:** Produces speech, but described as having a non-native (e.g., mixed African/English/French) accent. Does not sound like native German.
-*   **French:** Produces speech, heavily English-accented.
-*   **Spanish:** Produces speech, heavily English-accented.
-*   **Romanian:** Produces speech, heavily English-accented.
-*   **Italian:** Produces speech, heavily English-accented.
-*   **Dutch:** Not recognizable as Dutch.
-*   **Swedish:** Not recognizable as Swedish.
-*   **Polish:** (Uses Latin script, but good to test) - *Result based on your test, e.g., "Not recognizable as Polish."*
-*   **Turkish:** Generally produces unintelligible or English-ified output.
-*   **Czech:** (Uses Latin script with diacritics) - *Result based on your test, e.g., "Generally produces unintelligible or English-ified output."*
-*   **Korean:** Generally produces unintelligible output; may try to pronounce characters as English letters.
-*   **Chinese (Mandarin):** Generally produces unintelligible output; may try to pronounce characters as English letters or Pinyin with English phonetics.
-*   **Greek:** **HIGHLY UNSUPPORTED.** Attempting to use Greek text can lead to application errors (CUDA device-side asserts). **DO NOT TEST without expecting potential instability.**
+*   **English:** ✅ Supported (Primary Language)
+*   **German:** 🗣️ Produces heavily English-accented speech. Does not sound like native German.
+*   **French:** 🗣️ Produces heavily English-accented speech.
+*   **Spanish:** 🗣️ Produces heavily English-accented speech.
+*   **Italian:** 🗣️ Produces heavily English-accented speech.
+*   **Romanian:** 🗣️ Produces heavily English-accented speech.
+*   **Dutch:** 🚫 Generally unintelligible or sounds nothing like Dutch.
+*   **Swedish:** 🚫 Generally unintelligible or sounds nothing like Swedish.
+*   **Polish:** *(Latin script with diacritics)* - 🗣️ Likely heavily English-accented; intelligibility may vary. *(You can update with your specific test result here if you do one, e.g., "Poor intelligibility, strong English accent.")*
+*   **Turkish:** *(Latin script with some unique characters)* - 🚫 Generally unintelligible or heavily English-ified.
+*   **Czech:** *(Latin script with diacritics)* - 🗣️ Likely heavily English-accented; intelligibility may vary. *(Update with test result)*
+*   **Bulgarian:** *(Cyrillic script)* - 🛑 **HIGHLY UNSUPPORTED.**
+*   **Russian, Serbian, Ukrainian (other Cyrillic):** 🛑 **HIGHLY UNSUPPORTED.**
+*   **Korean (Hangul):** 🛑 **HIGHLY UNSUPPORTED.** May attempt to pronounce characters as English letters.
+*   **Chinese (Mandarin - Hanzi):** 🛑 **HIGHLY UNSUPPORTED.** May attempt to pronounce characters as English letters or Pinyin with English phonetics.
+*   **Greek (Greek script):** 🛑 **HIGHLY UNSUPPORTED & POTENTIALLY UNSTABLE.** Can lead to application errors (CUDA asserts).
 
+*(This list is not exhaustive. Feel free to report your findings for other languages if you experiment, but please note the model's English-centric design.)*
 </details>
 
 ## Features
+
+<details>
+<summary>Click to expand</summary>
 
 *   **Simple PySide6 Interface:**
     *   Text input for speech synthesis.
@@ -69,7 +98,12 @@ The following are informal test results based on community feedback or brief che
     *   Saves generated audio to a `chatterbox_outputs` subdirectory.
     *   Filenames include timestamps and the actual seed used for generation.
 
+</details>
+
 ## Prerequisites
+
+<details>
+<summary>Click to expand</summary>
 
 1.  **Python:** Version 3.11 is recommended and targeted by the `run.bat` script. Other Python 3.8+ versions might work but ensure it's added to your system PATH.
     *   You can modify the Python version in `run.bat` if needed (variable `PYTHON_VERSION`, though currently it uses `python3.11` directly in the `uv venv` command).
@@ -81,8 +115,12 @@ The following are informal test results based on community feedback or brief che
 4.  **NVIDIA GPU (Optional, for GPU acceleration):**
     *   If you have an NVIDIA GPU, ensure you have the latest drivers installed. The installer will attempt to detect your CUDA version.
 5.  **Internet Connection:** Required for downloading dependencies during the first setup.
+</details>
 
 ## Installation & Usage
+
+<details>
+<summary>Click to expand</summary>
 
 1.  **Clone or Download this Repository:**
     ```bash
@@ -115,8 +153,11 @@ The following are informal test results based on community feedback or brief che
         *   Use the Play/Pause, Stop, and seek slider.
         *   Double-click files in the "Generated Files History" to play them.
     *   Generated files are saved in the `chatterbox_outputs` folder.
+</details>
 
-## Manual Installation (Alternative)
+## Manual Installation (Advanced)
+<details>
+<summary>Click to expand</summary>
 
 ### macOS / Apple Silicon (M1/M2/M3) Users:
 
@@ -149,18 +190,26 @@ If you prefer not to use the `run.bat` script or are on a different OS:
     ```bash
     python main.py
     ```
+</details>
 
 ## Project Structure
+<details>
+<summary>Click to expand</summary>
 
 *   `main.py`: The main PySide6 application script.
 *   `run.bat`: Windows batch script for one-click setup and launch.
+*   `run.sh`: MacOS/Linux batch script for one-click setup and launch.
 *   `requirements.in`: High-level list of direct Python dependencies.
 *   `requirements.lock.txt`: Fully resolved list of all Python dependencies with pinned versions for reproducible environments (generated by `uv pip compile`).
 *   `install_torch.py`: Python script to detect CUDA and install the appropriate PyTorch build.
 *   `chatterbox_outputs/`: Directory where generated audio files are saved (created automatically).
 *   `.venv/`: Python virtual environment (created automatically by `run.bat` or manually).
+</details>
 
 ## Troubleshooting
+<details>
+<summary>Click to expand</summary>
+
 
 *   **`NLTK 'punkt' resource failed to download`**: Ensure you have an active internet connection during the first run. You can also try manually downloading it:
     ```bash
@@ -171,9 +220,11 @@ If you prefer not to use the `run.bat` script or are on a different OS:
 *   **`ChatterboxTTS library not found`**: Ensure `uv pip sync requirements.lock.txt` completed successfully.
 *   **No audio playback / Media Player Errors**: Make sure FFmpeg is correctly installed and its `bin` directory is in your system's PATH.
 *   **Slow Generation**: Generating speech for long texts by stitching multiple chunks will take time. The number of chunks depends on the text length and sentence structure. Experiment with the `CFG/Pace` and `Exaggeration` sliders for speech rate.
-
+</details>
 
 ## Important Notes on PyTorch Installation & Reproducibility
+<details>
+<summary>Click to expand</summary>
 
 This project aims for both ease of use and reproducible environments. Here's how PyTorch (a core dependency for `chatterbox-tts`) is handled:
 
@@ -198,10 +249,12 @@ This project aims for both ease of use and reproducible environments. Here's how
 
 **Key takeaway:** The `requirements.lock.txt` provides a stable base for most packages. The `install_torch.py` script then tailors the PyTorch installation to your specific hardware for optimal performance. You generally do not need to modify `requirements.lock.txt` manually regarding PyTorch.
 
+</details>
+
 ## Contributing
 
 Feel free to open issues or suggest improvements!
 ## Acknowledgements
 
 *   **Resemble AI** for the open-source [Chatterbox TTS model](https://github.com/resemble-ai/chatterbox).
-*   The developers of PySide6, NLTK, PyTorch, and `uv`.
+*   The developers of PySide6, NLTK, PyTorch, and `uv`.# Chatterbox TTS - One Click Installer & UI

@@ -254,7 +254,8 @@ This project aims for both ease of use and reproducible environments. Here's how
 
 ## Contributing
 
-Feel free to open issues or suggest improvements!
+Please take a look at [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to help out.
+
 ## Acknowledgements
 
 *   **Resemble AI** for the open-source [Chatterbox TTS model](https://github.com/resemble-ai/chatterbox).

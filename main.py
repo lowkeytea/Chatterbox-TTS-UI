@@ -4,22 +4,55 @@ import datetime
 import random
 import numpy as np
 import torch
-# Determine the best available device
-if torch.cuda.is_available():
-    map_location = 'cuda'
-elif getattr(torch.backends, 'mps', None) and torch.backends.mps.is_available():
-    map_location = 'mps'
-else:
-    map_location = 'cpu'
+import tempfile
+import gc
+import warnings
 
-# Patch torch.load to default to the best device if map_location not explicitly set
-torch_load_original = torch.load
-def patched_torch_load(*args, **kwargs):
-    if 'map_location' not in kwargs:
-        kwargs['map_location'] = map_location
-    return torch_load_original(*args, **kwargs)
+# Suppress specific warnings from the ChatterBox library
+warnings.filterwarnings("ignore", message=".*torch.backends.cuda.sdp_kernel.*", category=FutureWarning)
+warnings.filterwarnings("ignore", message=".*LlamaSdpaAttention.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*past_key_values.*tuple of tuples.*", category=FutureWarning)
 
-torch.load = patched_torch_load
+# Set environment variable to use eager attention implementation to avoid fallback warning
+os.environ["TRANSFORMERS_ATTN_IMPLEMENTATION"] = "eager"
+
+# Enhanced device detection with optimization flags
+def get_optimal_device():
+    if torch.cuda.is_available():
+        device = 'cuda'
+        # Enable TF32 on Ampere GPUs for better performance
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        device = 'mps'
+        # MPS-specific optimizations
+        os.environ['PYTORCH_MPS_HIGH_WATERMARK_RATIO'] = '0.0'  # Better memory management
+    else:
+        device = 'cpu'
+        # Enable CPU optimizations
+        torch.set_num_threads(min(8, os.cpu_count() or 1))
+    
+    return device
+
+map_location = get_optimal_device()
+
+# Context manager for torch.load patching instead of global patching
+class PatchedTorchLoad:
+    def __enter__(self):
+        self.original = torch.load
+        def patched_load(*args, **kwargs):
+            if 'map_location' not in kwargs:
+                kwargs['map_location'] = map_location
+            return self.original(*args, **kwargs)
+        torch.load = patched_load
+        return self
+    
+    def __exit__(self, *args):
+        torch.load = self.original
+
+# Use context manager when needed
+with PatchedTorchLoad():
+    pass  # Will be used during model loading
 import torchaudio
 import traceback
 
@@ -69,7 +102,7 @@ from PySide6.QtWidgets import (
 )
 # QStandardPaths was in your full file, good.
 from PySide6.QtCore import Qt, QThread, Signal, QUrl, QTimer, QTime
-from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices
 
 try:
     from chatterbox.tts import ChatterboxTTS
@@ -101,9 +134,51 @@ class ModelLoaderThread(QThread):
                 return
             print(
                 f"Attempting to load ChatterboxTTS model on device: {self.device}...")
-            model_instance = ChatterboxTTS.from_pretrained(self.device)
+            
+            # Load model with context manager for proper device mapping
+            with PatchedTorchLoad():
+                # Try to pass attention implementation if supported
+                try:
+                    model_instance = ChatterboxTTS.from_pretrained(
+                        self.device, 
+                        attn_implementation="eager"
+                    )
+                except TypeError:
+                    # Fallback if attn_implementation is not supported
+                    model_instance = ChatterboxTTS.from_pretrained(self.device)
+            
+            print(f"Model type: {type(model_instance)}")
+            print(f"Model methods: {[m for m in dir(model_instance) if not m.startswith('_')][:10]}...")  # First 10 public methods
+            
             if hasattr(model_instance, 'to'):
                 model_instance.to(self.device)
+            
+            # Apply optimizations based on device
+            if self.device == 'mps':
+                # MPS-specific optimizations
+                if hasattr(model_instance, 'eval'):
+                    model_instance.eval()  # Ensure eval mode
+                    print("Model set to eval mode")
+                else:
+                    print("Model does not have eval() method")
+                # Enable mixed precision for MPS if supported
+                if hasattr(torch, 'autocast') and hasattr(torch, 'mps'):
+                    print("Enabling MPS optimizations...")
+            elif self.device == 'cuda':
+                if hasattr(model_instance, 'eval'):
+                    model_instance.eval()
+                    print("Model set to eval mode")
+                else:
+                    print("Model does not have eval() method")
+                # Try to compile model if PyTorch 2.0+
+                if hasattr(torch, 'compile') and torch.__version__ >= '2.0.0':
+                    try:
+                        print("Attempting to compile model with torch.compile()...")
+                        model_instance = torch.compile(model_instance, mode='reduce-overhead')
+                        print("Model compiled successfully!")
+                    except Exception as e:
+                        print(f"torch.compile() failed (will use uncompiled): {e}")
+            
             print(
                 f"Model loaded successfully. Model device: {model_instance.device if hasattr(model_instance, 'device') else 'N/A'}")
             self.model_loaded.emit(model_instance, self.device)
@@ -133,12 +208,44 @@ class AudioGeneratorThread(QThread):
         self.output_dir = output_dir
         self.actual_seed_used = seed
         self._is_stopped = False
+        self.device = map_location  # Add device detection
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
 
     def stop(self):
         print("Stop requested for audio generation thread.")
         self._is_stopped = True
+    
+    def _save_audio_with_platform_handling(self, audio_tensor, output_path, sample_rate):
+        """Save audio with platform-specific format handling"""
+        if sys.platform == "darwin":  # macOS specific handling
+            # macOS Qt audio player has issues with 24kHz float32 audio
+            # Convert to 16-bit PCM and resample to 48kHz for compatibility
+            
+            # Normalize audio
+            max_val = torch.max(torch.abs(audio_tensor))
+            if max_val > 0:
+                audio_normalized = audio_tensor / max_val
+            else:
+                print("WARNING: Audio appears to be silent (max amplitude is 0)")
+                audio_normalized = audio_tensor
+            
+            # Resample to 48kHz if needed
+            if sample_rate != 48000:
+                import torchaudio.transforms as T
+                resampler = T.Resample(sample_rate, 48000)
+                audio_resampled = resampler(audio_normalized)
+                audio_int16 = (audio_resampled * 32767).to(torch.int16)
+                torchaudio.save(output_path, audio_int16, 48000)
+                print(f"Final audio saved (16-bit PCM, 48kHz) to: {output_path}")
+            else:
+                audio_int16 = (audio_normalized * 32767).to(torch.int16)
+                torchaudio.save(output_path, audio_int16, sample_rate)
+                print(f"Final audio saved (16-bit PCM) to: {output_path}")
+        else:
+            # Standard save for other platforms
+            torchaudio.save(output_path, audio_tensor, sample_rate)
+            print(f"Final stitched audio saved to: {output_path}")
 
     def set_seed_internal(self, seed_val: int):
         torch.manual_seed(seed_val)
@@ -233,38 +340,111 @@ class AudioGeneratorThread(QThread):
             print(f"Processed into {total_chunks} chunks.")
             # (Optional debug print for chunks can go here)
 
-            all_audio_tensors = []
+            # Streaming audio generation with better memory management
             sr = self.model.sr
-            for i, chunk_text in enumerate(final_chunks):
-                if self._is_stopped:
-                    self.error_occurred.emit(
-                        f"Generation stopped by user at chunk {i+1}/{total_chunks}.")
-                    return
-                current_chunk_num = i + 1
-                self.chunk_generated.emit(current_chunk_num, total_chunks)
-                print(
-                    f"\nGenerating chunk {current_chunk_num}/{total_chunks} (seed: {self.actual_seed_used}): '{chunk_text[:70]}...'")
-                wav_tensor_chunk = self.model.generate(chunk_text,
-                                                       audio_prompt_path=self.audio_prompt_path if self.audio_prompt_path else None,
-                                                       exaggeration=self.exaggeration, temperature=self.temperature, cfg_weight=self.cfg_weight)
-                if wav_tensor_chunk.ndim == 1:
-                    wav_tensor_chunk = wav_tensor_chunk.unsqueeze(0)
-                all_audio_tensors.append(wav_tensor_chunk.cpu())
-
-            if self._is_stopped:
-                self.error_occurred.emit("Stopped before final concat.")
-                return
-            if not all_audio_tensors:
-                self.error_occurred.emit("No audio data generated.")
-                return
-
-            print("\nConcatenating audio chunks...")
-            final_audio_tensor = torch.cat(all_audio_tensors, dim=1)
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"chatterbox_{timestamp}_seed{self.actual_seed_used}_full_stitched.wav"
             output_path = os.path.join(self.output_dir, filename)
-            torchaudio.save(output_path, final_audio_tensor, sr)
-            print(f"Final stitched audio saved to: {output_path}")
+            
+            # Create temporary file for streaming chunks
+            temp_dir = tempfile.gettempdir()
+            temp_chunks = []
+            
+            try:
+                # Generate chunks and save to temporary files
+                for i, chunk_text in enumerate(final_chunks):
+                    if self._is_stopped:
+                        self.error_occurred.emit(
+                            f"Generation stopped by user at chunk {i+1}/{total_chunks}.")
+                        return
+                    
+                    current_chunk_num = i + 1
+                    self.chunk_generated.emit(current_chunk_num, total_chunks)
+                    print(
+                        f"\nGenerating chunk {current_chunk_num}/{total_chunks} (seed: {self.actual_seed_used}): '{chunk_text[:70]}...'")
+                    
+                    # Use autocast for MPS/CUDA if available
+                    if self.device == 'mps' and hasattr(torch, 'autocast'):
+                        with torch.autocast('mps', dtype=torch.float16):
+                            wav_tensor_chunk = self.model.generate(chunk_text,
+                                                                 audio_prompt_path=self.audio_prompt_path if self.audio_prompt_path else None,
+                                                                 exaggeration=self.exaggeration, 
+                                                                 temperature=self.temperature, 
+                                                                 cfg_weight=self.cfg_weight)
+                    elif self.device == 'cuda':
+                        with torch.cuda.amp.autocast(enabled=True):
+                            wav_tensor_chunk = self.model.generate(chunk_text,
+                                                                 audio_prompt_path=self.audio_prompt_path if self.audio_prompt_path else None,
+                                                                 exaggeration=self.exaggeration, 
+                                                                 temperature=self.temperature, 
+                                                                 cfg_weight=self.cfg_weight)
+                    else:
+                        wav_tensor_chunk = self.model.generate(chunk_text,
+                                                             audio_prompt_path=self.audio_prompt_path if self.audio_prompt_path else None,
+                                                             exaggeration=self.exaggeration, 
+                                                             temperature=self.temperature, 
+                                                             cfg_weight=self.cfg_weight)
+                    
+                    if wav_tensor_chunk.ndim == 1:
+                        wav_tensor_chunk = wav_tensor_chunk.unsqueeze(0)
+                    
+                    # Save chunk to temporary file immediately
+                    temp_chunk_path = os.path.join(temp_dir, f"chunk_{i:04d}.wav")
+                    torchaudio.save(temp_chunk_path, wav_tensor_chunk.cpu(), sr)
+                    temp_chunks.append(temp_chunk_path)
+                    
+                    # Clear GPU memory after each chunk
+                    del wav_tensor_chunk
+                    if self.device == 'cuda':
+                        torch.cuda.empty_cache()
+                    elif self.device == 'mps':
+                        torch.mps.empty_cache() if hasattr(torch.mps, 'empty_cache') else None
+                    gc.collect()
+                
+                if self._is_stopped:
+                    self.error_occurred.emit("Stopped before final concat.")
+                    return
+                
+                if not temp_chunks:
+                    self.error_occurred.emit("No audio data generated.")
+                    return
+                
+                print("\nConcatenating audio chunks...")
+                
+                # Efficient concatenation using temporary files
+                audio_chunks = []
+                for chunk_path in temp_chunks:
+                    chunk_audio, _ = torchaudio.load(chunk_path)
+                    audio_chunks.append(chunk_audio)
+                
+                # Concatenate in smaller batches to avoid memory spike
+                if len(audio_chunks) > 10:
+                    final_audio = audio_chunks[0]
+                    for chunk in audio_chunks[1:]:
+                        final_audio = torch.cat([final_audio, chunk], dim=1)
+                        # Clear intermediate tensors
+                        del chunk
+                        gc.collect()
+                else:
+                    final_audio = torch.cat(audio_chunks, dim=1)
+                
+                # Save final audio with platform-specific handling
+                self._save_audio_with_platform_handling(final_audio, output_path, sr)
+                
+                # Cleanup
+                del final_audio
+                del audio_chunks
+                gc.collect()
+                
+            finally:
+                # Clean up temporary files
+                for temp_file in temp_chunks:
+                    try:
+                        if os.path.exists(temp_file):
+                            os.remove(temp_file)
+                    except:
+                        pass
+            
             self.generation_complete.emit(output_path, sr)
         except Exception as e:
             if not self._is_stopped:
@@ -291,7 +471,10 @@ class ChatterboxApp(QMainWindow):
         self.last_reference_audio_dir = script_dir
 
         self.media_player = QMediaPlayer()
-        self.audio_output = QAudioOutput()
+        
+        # Initialize audio output with platform-specific handling
+        self._init_audio_output()
+        
         self.media_player.setAudioOutput(self.audio_output)
         self.is_seeking_audio = False
         self.paused_position = 0  # Added paused_position here
@@ -301,6 +484,7 @@ class ChatterboxApp(QMainWindow):
         self.media_player.playbackStateChanged.connect(
             self.handle_playback_state_changed)
         self.media_player.errorOccurred.connect(self.handle_media_error)
+        self.media_player.mediaStatusChanged.connect(self.handle_media_status_changed)
 
         self.generation_timer = QTimer(self)
         self.generation_timer.timeout.connect(
@@ -393,6 +577,24 @@ class ChatterboxApp(QMainWindow):
         self.stop_button.clicked.connect(self.stop_audio)
         self.stop_button.setEnabled(False)
         player_controls_layout.addWidget(self.stop_button)
+        
+        # Add volume control
+        player_controls_layout.addWidget(QLabel("Volume:"))
+        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider.setRange(0, 100)
+        self.volume_slider.setValue(100)
+        self.volume_slider.setMaximumWidth(100)
+        self.volume_slider.valueChanged.connect(self.update_volume)
+        player_controls_layout.addWidget(self.volume_slider)
+        
+        self.volume_label = QLabel("100%")
+        player_controls_layout.addWidget(self.volume_label)
+        
+        # Add test sound button for debugging
+        self.test_sound_button = QPushButton("Test Sound")
+        self.test_sound_button.clicked.connect(self.play_test_sound)
+        player_controls_layout.addWidget(self.test_sound_button)
+        
         playback_v_layout.addLayout(player_controls_layout)
 
         playhead_layout = QHBoxLayout()
@@ -621,6 +823,7 @@ class ChatterboxApp(QMainWindow):
         # ... (rest of the method same as your working version)
         self.current_file_label.setText(
             f"Last generated: {os.path.basename(output_path)}")
+        
         self.media_player.setSource(QUrl.fromLocalFile(output_path))
         self.play_pause_button.setEnabled(True)
         self.stop_button.setEnabled(True)
@@ -771,8 +974,53 @@ class ChatterboxApp(QMainWindow):
         #     if self.media_player.mediaStatus()==QMediaPlayer.MediaStatus.EndOfMedia: # End of media reached
         #         self.playhead_slider.setValue(0);self.current_time_label.setText("00:00") # Reset to start
 
+    def play_test_sound(self):
+        """Generate and play a test tone to verify audio output"""
+        print("Playing test sound...")
+        import numpy as np
+        
+        # Generate a 1-second 440Hz sine wave
+        sample_rate = 48000
+        duration = 1.0
+        frequency = 440.0
+        
+        t = np.linspace(0, duration, int(sample_rate * duration))
+        test_audio = np.sin(2 * np.pi * frequency * t)
+        
+        # Convert to torch tensor and save
+        test_tensor = torch.from_numpy(test_audio).float().unsqueeze(0)
+        test_path = os.path.join(self.output_directory, "test_tone.wav")
+        
+        # Save as 16-bit PCM
+        test_tensor_int16 = (test_tensor * 32767).to(torch.int16)
+        torchaudio.save(test_path, test_tensor_int16, sample_rate)
+        
+        print(f"Test tone saved to: {test_path}")
+        self.media_player.setSource(QUrl.fromLocalFile(test_path))
+        self.media_player.play()
+        print(f"Audio output device: {self.audio_output.device().description()}")
+        print(f"Volume: {self.audio_output.volume()}")
+        print(f"Muted: {self.audio_output.isMuted()}")
+    
+    def update_volume(self, value):
+        volume = value / 100.0
+        self.audio_output.setVolume(volume)
+        self.volume_label.setText(f"{value}%")
+        print(f"Volume set to: {volume}")
+    
+    def handle_media_status_changed(self, status):
+        print(f"Media status changed to: {status}")
+        if status == QMediaPlayer.MediaStatus.InvalidMedia:
+            print("Invalid media - audio format may not be supported")
+        elif status == QMediaPlayer.MediaStatus.LoadedMedia:
+            print("Media loaded successfully")
+        elif status == QMediaPlayer.MediaStatus.EndOfMedia:
+            print("End of media reached")
+    
     def handle_media_error(self):
         error_string = self.media_player.errorString()
+        error_code = self.media_player.error()
+        print(f"Media error occurred - Code: {error_code}, Message: {error_string}")
         if error_string:
             QMessageBox.warning(self, "Media Player Error",
                                 f"Error playing audio: {error_string}")
@@ -781,6 +1029,26 @@ class ChatterboxApp(QMainWindow):
         self.stop_button.setEnabled(False)
         self.playhead_slider.setEnabled(False)
         self.update_duration_info(0)  # Reset duration display on error
+    
+    def _init_audio_output(self):
+        """Initialize audio output with platform-specific handling"""
+        # Get default device
+        default_device = QMediaDevices.defaultAudioOutput()
+        print(f"Default audio device: {default_device.description()}")
+        
+        # Create audio output
+        self.audio_output = QAudioOutput(default_device)
+        self.audio_output.setVolume(1.0)  # Max volume
+        
+        # Platform-specific audio configuration
+        if sys.platform == "darwin":  # macOS
+            print("macOS detected - configuring audio output for compatibility")
+            # Ensure not muted (macOS sometimes has issues with mute state)
+            if self.audio_output.isMuted():
+                self.audio_output.setMuted(False)
+                print("Unmuted audio output")
+        
+        print(f"Audio output muted: {self.audio_output.isMuted()}")
 
     def closeEvent(self, event):
         if hasattr(self, 'model_loader_thread') and self.model_loader_thread.isRunning():

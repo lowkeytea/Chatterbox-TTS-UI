@@ -261,6 +261,12 @@ Please take a look at [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how t
 Thanks goes to these wonderful people:
 
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<table>
+  <tr>
+    <td align="center" style="border: 1px solid #ccc; padding: 10px;"><a href="https://github.com/AcTePuKc"><img src="https://avatars.githubusercontent.com/AcTePuKc?v=4" width="100px;" alt=""/><br /><sub><b>AcTePuKc</b></sub></a><br />🚀 Creator / Maintainer</td>
+    <td align="center" style="border: 1px solid #ccc; padding: 10px;"><a href="https://github.com/lowkeytea"><img src="https://avatars.githubusercontent.com/lowkeytea?v=4" width="100px;" alt=""/><br /><sub><b>lowkeytea</b></sub></a><br />💻 Code</td>
+  </tr>
+</table>
 <!-- ALL-CONTRIBUTORS-LIST:END -->
 
 This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification.

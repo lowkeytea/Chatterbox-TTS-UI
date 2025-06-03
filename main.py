@@ -4,6 +4,22 @@ import datetime
 import random
 import numpy as np
 import torch
+# Determine the best available device
+if torch.cuda.is_available():
+    map_location = 'cuda'
+elif getattr(torch.backends, 'mps', None) and torch.backends.mps.is_available():
+    map_location = 'mps'
+else:
+    map_location = 'cpu'
+
+# Patch torch.load to default to the best device if map_location not explicitly set
+torch_load_original = torch.load
+def patched_torch_load(*args, **kwargs):
+    if 'map_location' not in kwargs:
+        kwargs['map_location'] = map_location
+    return torch_load_original(*args, **kwargs)
+
+torch.load = patched_torch_load
 import torchaudio
 import traceback
 
@@ -75,7 +91,7 @@ class ModelLoaderThread(QThread):
 
     def __init__(self):
         super().__init__()
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = map_location
 
     def run(self):
         try:

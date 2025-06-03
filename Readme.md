@@ -256,6 +256,16 @@ This project aims for both ease of use and reproducible environments. Here's how
 
 Please take a look at [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to help out.
 
+## Contributors ✨
+
+Thanks goes to these wonderful people:
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- ALL-CONTRIBUTORS-LIST:END -->
+
+This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification.
+Contributions of any kind are welcome!
+
 ## Acknowledgements
 
 *   **Resemble AI** for the open-source [Chatterbox TTS model](https://github.com/resemble-ai/chatterbox).
